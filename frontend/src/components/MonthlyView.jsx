@@ -11,7 +11,7 @@ export default function MonthlyView({ user, refreshTrigger }) {
 
   useEffect(() => {
     if (!user) return;
-    axios.get(`http://localhost:3000/work-logs/user/${user.id}`)
+    axios.get(`/work-logs/user/${user.id}`)
       .then(res => setLogs(res.data))
       .catch(err => console.error(err));
   }, [user, refreshTrigger]);
