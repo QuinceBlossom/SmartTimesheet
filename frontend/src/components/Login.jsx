@@ -72,7 +72,7 @@ export default function Login({ onLoginSuccess }) {
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
       <Card style={{ width: 400, padding: 20 }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <Title level={3}>Timesheet System</Title>
+          <Title level={3}>SmartTimesheet</Title>
           <p>Đăng nhập để chấm công</p>
         </div>
 

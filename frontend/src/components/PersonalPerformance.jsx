@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DatePicker, Row, Col, Table, Tag, Typography, Card, Space } from 'antd';
+import { DatePicker, Row, Col, Table, Tag, Typography, Card, Space, Button } from 'antd';
 import { Doughnut, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -75,6 +75,31 @@ const STYLES = {
 };
 
 import axios from '../axiosConfig';
+
+const FeedbackViewer = ({ feedback }) => {
+  const [expanded, setExpanded] = useState(false);
+  if (!feedback) return null;
+  
+  const limit = 100;
+  const isLong = feedback.length > limit;
+  const textToShow = expanded ? feedback : (isLong ? `${feedback.substring(0, limit)}...` : feedback);
+  
+  return (
+    <Text style={{ color: '#4b5563', fontStyle: 'italic' }}>
+      "{textToShow}"
+      {isLong && (
+        <Button 
+          type="link" 
+          size="small" 
+          style={{ padding: '0 4px', fontSize: 11, height: 'auto', display: 'inline-block', fontStyle: 'normal' }} 
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? 'Thu gọn' : 'Xem thêm'}
+        </Button>
+      )}
+    </Text>
+  );
+};
 
 const PersonalPerformance = ({ user }) => {
   const [selectedMonth, setSelectedMonth] = useState(dayjs());
@@ -239,7 +264,7 @@ const PersonalPerformance = ({ user }) => {
       title: 'Phản Hồi Từ Quản Lý',
       dataIndex: 'feedback',
       key: 'feedback',
-      render: (text) => <Text style={{ color: '#4b5563', fontStyle: 'italic' }}>"{text}"</Text>,
+      render: (text) => <FeedbackViewer feedback={text} />,
     },
   ];
 

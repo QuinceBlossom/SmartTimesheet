@@ -151,6 +151,28 @@ db.getConnection((err, connection) => {
         connection.query("ALTER TABLE tasks ADD COLUMN attachment_name VARCHAR(255)", (err) => {
             if (!err) console.log('✅ Đã thêm cột attachment_name vào bảng tasks!');
         });
+        connection.query("ALTER TABLE tasks ADD COLUMN status VARCHAR(20) DEFAULT 'pending'", (err) => {
+            if (!err) console.log('✅ Đã thêm cột status vào bảng tasks!');
+        });
+        connection.query("ALTER TABLE tasks ADD COLUMN level VARCHAR(5) DEFAULT 'C'", (err) => {
+            if (!err) console.log('✅ Đã thêm cột level vào bảng tasks!');
+        });
+        connection.query("ALTER TABLE tasks ADD COLUMN completed_at DATETIME DEFAULT NULL", (err) => {
+            if (!err) console.log('✅ Đã thêm cột completed_at vào bảng tasks!');
+        });
+        connection.query(`
+            CREATE TABLE IF NOT EXISTS kpi_configs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                manager_id INT NOT NULL,
+                eval_month VARCHAR(10) NOT NULL,
+                target_points INT NOT NULL DEFAULT 50,
+                excellent_points INT NOT NULL DEFAULT 70,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_manager_month (manager_id, eval_month)
+            )
+        `, (err) => {
+            if (!err) console.log('✅ Đã khởi tạo hoặc kiểm tra bảng kpi_configs!');
+        });
         
         connection.release(); // Nhớ release lại cho pool
     }
@@ -644,18 +666,25 @@ app.put('/users/update-status/:id', (req, res) => {
 
 // 9. Báo cáo thống kê hiệu suất (Manager)
 app.get('/manager/stats', (req, res) => {
-    const managerId = req.query.managerId;
+    const { managerId, startDate, endDate } = req.query;
 
     // Chỉ tính tổng giờ của những task ĐÃ DUYỆT (Approved) cho chuẩn KPI
+    // Lọc theo khoảng thời gian nếu truyền vào
     let sql = `
         SELECT u.id, u.full_name, u.department, 
                COALESCE(SUM(CASE WHEN w.status = 'Approved' THEN w.hours ELSE 0 END), 0) as total_hours
         FROM users u
-        LEFT JOIN work_logs w ON u.id = w.user_id 
-        WHERE u.role = 'staff'
+        LEFT JOIN work_logs w ON u.id = w.user_id
     `;
-
     const params = [];
+
+    if (startDate && endDate) {
+        sql += ` AND w.work_date >= ? AND w.work_date <= ? `;
+        params.push(startDate, endDate);
+    }
+
+    sql += ` WHERE u.role = 'staff' `;
+
     if (managerId) {
         sql += ` AND u.manager_id = ? `;
         params.push(managerId);
@@ -719,23 +748,31 @@ app.put('/work-logs/update-status', (req, res) => {
     db.query(sql, params, (err, result) => {
         if (err) return res.status(500).json(err);
 
-        // Cập nhật điểm cho user nếu status là Approved và có actual_grade
-        if (status === 'Approved' && actual_grade) {
-            // Tính toán KPI Score dựa trên trọng số lý thuyết
-            // Lấy thêm PriorityLevel và số giờ (Complexity giả định) từ tasks và work_logs
-            db.query("SELECT t.priority, w.hours, w.user_id FROM work_logs w LEFT JOIN tasks t ON w.task_id = t.id WHERE w.id = ?", [id], (err2, data2) => {
-                if(!err2 && data2.length > 0) {
+        // Đồng bộ khi cập nhật trạng thái duyệt
+        if (status === 'Approved') {
+            db.query("SELECT t.priority, w.hours, w.user_id, w.task_id, w.work_date, w.actual_grade FROM work_logs w LEFT JOIN tasks t ON w.task_id = t.id WHERE w.id = ?", [id], (err2, data2) => {
+                if (!err2 && data2.length > 0) {
                     const taskData = data2[0];
                     const targetUser = taskData.user_id;
+                    const taskId = taskData.task_id;
+                    const workDate = taskData.work_date;
                     const priority = taskData.priority || 'C'; // Mặc định C
                     const hours = parseFloat(taskData.hours || 0);
 
+                    // Xác định hạng thực tế (Grade)
+                    const finalGrade = actual_grade || taskData.actual_grade || 'C';
+
+                    // Cập nhật actual_grade cho work_logs nếu chưa có hạng
+                    if (!taskData.actual_grade) {
+                        db.query("UPDATE work_logs SET actual_grade = ? WHERE id = ?", [finalGrade, id]);
+                    }
+
                     // 1. Trọng số Xếp hạng (Grade Weight)
                     let gradeWeight = 1;
-                    if (actual_grade === 'A') gradeWeight = 4;
-                    else if (actual_grade === 'B') gradeWeight = 3;
-                    else if (actual_grade === 'C') gradeWeight = 2;
-                    else if (actual_grade === 'D') gradeWeight = 1;
+                    if (finalGrade === 'A') gradeWeight = 4;
+                    else if (finalGrade === 'B') gradeWeight = 3;
+                    else if (finalGrade === 'C') gradeWeight = 2;
+                    else if (finalGrade === 'D') gradeWeight = 1;
 
                     // 2. Trọng số Độ ưu tiên (Priority Weight)
                     let priorityWeight = 1;
@@ -744,13 +781,35 @@ app.put('/work-logs/update-status', (req, res) => {
                     else if (priority === 'C') priorityWeight = 2;
                     else if (priority === 'D') priorityWeight = 1;
 
-                    // 3. Tính KPI Score (Ví dụ: Trọng số ưu tiên * Trọng số hoàn thành * (Giờ/8))
-                    // Nếu làm task quan trọng (A) được hạng A sẽ được (4 * 4 = 16 điểm KPI cơ sở)
+                    // 3. Tính KPI Score
                     const kpiScore = parseFloat((priorityWeight * gradeWeight * (hours > 0 ? hours/8 : 1)).toFixed(2));
 
                     if (kpiScore > 0) {
                         db.query("UPDATE users SET accumulated_points = accumulated_points + ? WHERE id = ?", [kpiScore, targetUser]);
                     }
+
+                    // ĐỒNG BỘ: Cập nhật task thành status='completed', level=finalGrade, completed_at=workDate
+                    if (taskId) {
+                        db.query("UPDATE tasks SET status = 'completed', level = ?, completed_at = ? WHERE id = ?", [finalGrade, workDate, taskId], (err3) => {
+                            if (err3) console.error("Lỗi đồng bộ task:", err3);
+                            else req.io.emit('tasks_updated');
+                        });
+                    }
+                }
+            });
+        } else {
+            // Nếu chuyển trạng thái khác Approved (Ví dụ: Draft, Rejected, Pending)
+            // Kiểm tra xem task đó còn báo cáo Approved nào khác không. Nếu không còn, reset status về 'pending'
+            db.query("SELECT task_id FROM work_logs WHERE id = ?", [id], (err2, data2) => {
+                if (!err2 && data2.length > 0 && data2[0].task_id) {
+                    const taskId = data2[0].task_id;
+                    db.query("SELECT COUNT(*) as count FROM work_logs WHERE task_id = ? AND status = 'Approved' AND id != ?", [taskId, id], (err3, data3) => {
+                        if (!err3 && data3.length > 0 && data3[0].count === 0) {
+                            db.query("UPDATE tasks SET status = 'pending', level = 'C', completed_at = NULL WHERE id = ?", [taskId], (err4) => {
+                                if (!err4) req.io.emit('tasks_updated');
+                            });
+                        }
+                    });
                 }
             });
         }
