@@ -1040,7 +1040,7 @@ export default function ManagerDashboard({ user }) {
                                         bodyStyle={{ padding: 32 }}
                                     >
                                         <Form form={assignForm} layout="vertical" onFinish={submitAssignTask} requiredMark={false}>
-                                            <Form.Item name="task_group" label={<span style={{ color: '#475569', fontWeight: 500 }}>Tên Dự Án / Nhóm Việc <span style={{ color: '#ef4444' }}>*</span></span>} rules={[{ required: true }]}>
+                                            <Form.Item name="task_group" label={<span style={{ color: '#475569', fontWeight: 500 }}>Tên Dự Án / Nhóm Việc <span style={{ color: '#ef4444' }}>*</span></span>} rules={[{ required: true, message: 'Vui lòng nhập tên dự án / nhóm việc!' }]}>
                                                 <AutoComplete
                                                     options={projectSuggestions}
                                                     placeholder="Tìm hoặc nhập dự án mới..."
@@ -1066,7 +1066,7 @@ export default function ManagerDashboard({ user }) {
                                                     className="modern-input"
                                                 />
                                             </Form.Item>
-                                            <Form.Item name="task_name" label={<span style={{ color: '#475569', fontWeight: 500 }}>Tên Tác Vụ <span style={{ color: '#ef4444' }}>*</span></span>} rules={[{ required: true }]}>
+                                            <Form.Item name="task_name" label={<span style={{ color: '#475569', fontWeight: 500 }}>Tên Tác Vụ <span style={{ color: '#ef4444' }}>*</span></span>} rules={[{ required: true, message: 'Vui lòng nhập tên tác vụ!' }]}>
                                                 <AutoComplete
                                                     options={taskSuggestions}
                                                     placeholder="Tìm hoặc nhập tên tác vụ mới..."

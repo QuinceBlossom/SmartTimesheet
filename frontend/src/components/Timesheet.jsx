@@ -27,6 +27,9 @@ export default function Timesheet({ user, onSaved }) {
 
   const [viewFeedbackModal, setViewFeedbackModal] = useState({ open: false, content: '', grade: '' });
 
+  const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
+  const [activeRowKeyForNewTask, setActiveRowKeyForNewTask] = useState(null);
+
   // --- LOGIC 0: TỰ ĐỘNG CẬP NHẬT REALTIME BẰNG SOCKET.IO ---
   useEffect(() => {
     const socket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000');
@@ -431,6 +434,42 @@ export default function Timesheet({ user, onSaved }) {
     setPendingScrollDate(targetDateStr);
   };
 
+  const handleCreateCustomTask = async (taskName) => {
+    if (!taskName || !taskName.trim()) {
+      return message.warning("Vui lòng nhập tên công việc!");
+    }
+    try {
+      const res = await axios.post('/tasks/staff-create', { 
+        task_name: taskName, 
+        user_id: user.id 
+      });
+      if (res.data.status === 'success') {
+        message.success("Tạo công việc thành công!");
+        const newCreatedTask = res.data.task;
+        
+        // Cập nhật danh sách task của component ngay lập tức
+        setTasks(prev => {
+          if (prev.some(t => t.id === newCreatedTask.id)) return prev;
+          return [newCreatedTask, ...prev];
+        });
+        
+        // Tự động gán task mới này cho dòng timesheet hiện tại
+        if (activeRowKeyForNewTask !== null) {
+          handleUpdate(activeRowKeyForNewTask, 'taskId', newCreatedTask.id);
+        }
+        
+        // Reset state & đóng modal
+        setIsCreateTaskModalOpen(false);
+        setActiveRowKeyForNewTask(null);
+      } else {
+        message.error(res.data.message || "Tạo công việc thất bại!");
+      }
+    } catch (error) {
+      console.error("Lỗi tạo công việc:", error);
+      message.error("Lỗi kết nối khi tạo công việc!");
+    }
+  };
+
   // --- HÀM CONVERT GIỜ ---
   const floatToTime = (num) => {
     if (!num) return null;
@@ -620,6 +659,25 @@ export default function Timesheet({ user, onSaved }) {
                                   onChange={(val) => handleTaskSelect(log.key, val)}
                                   optionLabelProp="label"
                                   className="modern-select"
+                                  dropdownRender={(menu) => (
+                                     <>
+                                        {menu}
+                                        <div style={{ borderTop: '1px solid #f0f0f0', margin: '4px 0' }} />
+                                        <div style={{ padding: '4px 8px' }}>
+                                           <Button 
+                                              type="dashed" 
+                                              icon={<PlusOutlined />} 
+                                              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                              onClick={() => {
+                                                 setActiveRowKeyForNewTask(log.key);
+                                                 setIsCreateTaskModalOpen(true);
+                                              }}
+                                           >
+                                              Tự tạo công việc
+                                           </Button>
+                                        </div>
+                                     </>
+                                  )}
                                >
                                   {tasks.map(t => {
                                      let assignedArr = [];
@@ -627,9 +685,11 @@ export default function Timesheet({ user, onSaved }) {
                                      else if (typeof t.assigned_to === 'string') try { assignedArr = JSON.parse(t.assigned_to); } catch(e) {}
                                      
                                      const isAssignedToUser = assignedArr.includes(user.id);
+                                     const isUnassigned = assignedArr.length === 0;
                                      const isForOtherUser = assignedArr.length > 0 && !isAssignedToUser;
                                      const isReported = reportedTaskIds.includes(t.id);
                                      
+                                     if (isUnassigned && log.taskId !== t.id) return null;
                                      if (isForOtherUser && log.taskId !== t.id) return null; 
                                      if (isAssignedToUser && isReported && log.taskId !== t.id) return null; 
                                      
@@ -751,6 +811,15 @@ export default function Timesheet({ user, onSaved }) {
         <Input.TextArea rows={4} placeholder="Nhập lý do bạn muốn sửa bản ghi này..." value={requestEditReason} onChange={e => setRequestEditReason(e.target.value)} />
       </Modal>
 
+      <CreateTaskModal
+         open={isCreateTaskModalOpen}
+         onOk={handleCreateCustomTask}
+         onCancel={() => {
+            setIsCreateTaskModalOpen(false);
+            setActiveRowKeyForNewTask(null);
+         }}
+      />
+
       <Modal title="Feedback từ Quản lý" open={viewFeedbackModal.open} footer={null} onCancel={() => setViewFeedbackModal({open: false, content: '', grade: ''})}>
           {viewFeedbackModal.grade && <h4 style={{color: '#1890ff'}}>Xếp hạng được cấp: Hạng {viewFeedbackModal.grade}</h4>}
           {viewFeedbackModal.content ? (
@@ -762,5 +831,42 @@ export default function Timesheet({ user, onSaved }) {
           )}
       </Modal>
     </div>
+  );
+}
+
+// --- SUB-COMPONENT ĐỂ TRÁNH RE-RENDER CẢ TIMESHEET KHI GÕ PHÍM ---
+function CreateTaskModal({ open, onOk, onCancel }) {
+  const [newTaskName, setNewTaskName] = useState('');
+
+  const handleOk = () => {
+    onOk(newTaskName);
+    setNewTaskName('');
+  };
+
+  const handleCancel = () => {
+    onCancel();
+    setNewTaskName('');
+  };
+
+  return (
+    <Modal 
+       title="Tự tạo công việc mới" 
+       open={open} 
+       onOk={handleOk} 
+       onCancel={handleCancel} 
+       okText="Tạo" 
+       cancelText="Hủy"
+       destroyOnClose
+    >
+       <div style={{ margin: '16px 0' }}>
+          <p style={{ marginBottom: 8, fontWeight: 500 }}>Tên công việc:</p>
+          <Input 
+             placeholder="Nhập tên công việc mới..." 
+             value={newTaskName} 
+             onChange={(e) => setNewTaskName(e.target.value)} 
+             onPressEnter={handleOk}
+          />
+       </div>
+    </Modal>
   );
 }

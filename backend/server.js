@@ -875,6 +875,33 @@ app.post('/tasks/mark-seen/:id', (req, res) => {
     });
 });
 
+// --- API MỚI: Staff tự tạo Task ---
+app.post('/tasks/staff-create', (req, res) => {
+    const { task_name, user_id } = req.body;
+    if (!task_name || !task_name.trim()) {
+        return res.json({ status: 'fail', message: 'Tên công việc không được để trống!' });
+    }
+    const userId = req.headers['x-user-id'] || user_id;
+    if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Vui lòng đăng nhập để thực hiện thao tác này!' });
+    }
+    
+    const sql = "INSERT INTO tasks (task_group, task_name, priority, expected_grade, assigned_to, is_new, status) VALUES (?, ?, ?, ?, ?, FALSE, 'pending')";
+    
+    db.query(sql, ['Tự giao việc', task_name.trim(), 'C', 'C', JSON.stringify([parseInt(userId)])], (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        const newTaskId = result.insertId;
+        
+        db.query("SELECT * FROM tasks WHERE id = ?", [newTaskId], (err2, data) => {
+            if (err2) return res.status(500).json(err2);
+            req.io.emit('tasks_updated');
+            return res.json({ status: 'success', task: data[0] });
+        });
+    });
+});
+
+
 // --- API MỚI: Lấy danh sách Task Nháp (Task Bank) ---
 app.get('/tasks/drafts', (req, res) => {
     // Task chưa được giao (assigned_to IS NULL)
